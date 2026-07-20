@@ -1,0 +1,193 @@
+#include <stdio.h>
+#include <string.h>
+
+#define max 100
+#define max_bit (max * 8)
+#define max_stuff (max_bit * 2)
+
+int data[max_bit], stuff[max_stuff], destuff[max_bit];
+char str[max];
+char output_str[max];
+int flag[] = {0, 1, 1, 1, 1, 1, 1, 0};
+int i, b, flaglen = 8;
+
+void print(const char *label, int arr[], int n) {
+    printf("%s ", label);
+    for(i = 0; i < n; i++) {
+        printf("%d", arr[i]);
+    }
+    printf("\n");
+}
+
+int main() {
+    int choice;
+
+    while(1) {
+        printf("___ Menu ___\n");
+        printf("1. Standard String Transmission \n");
+        printf("2. Manual Binary Input (Test Invalid Stuffing Error)\n");
+        printf("3. Exit\n");
+        printf("Enter your choice : ");
+
+        if (scanf("%d", &choice) != 1) {
+            printf("Invalid input type. Exiting program.\n");
+            break;
+        }
+        getchar(); // Clear the newline character from the buffer
+
+        if (choice == 3) {
+            printf("\nExiting>>>>\n");
+            break;
+        }
+
+        int ones = 0, j = 0, bit = 0;
+
+        switch(choice) {
+            case 1: {
+                printf("\n--- Case 1: Standard String Transmission ---\n");
+                printf("enter a string: ");
+                fgets(str, sizeof(str), stdin);
+                str[strcspn(str, "\n")] = '\0';
+
+                int str_len = strlen(str);
+
+                // Step 1: String to Binary
+                for(i = 0; i < str_len; i++) {
+                    unsigned char ch = (unsigned char)str[i];
+                    for(b = 7; b >= 0; b--) {
+                        data[bit++] = (ch >> b) & 1;
+                    }
+                }
+                print("original data:", data, bit);
+
+                // Step 2: Bit Stuffing
+                for(i = 0; i < bit; i++) {
+                    stuff[j++] = data[i];
+                    ones = (data[i] == 1) ? ones + 1 : 0;
+                    if(ones == 5) {
+                        stuff[j++] = 0;
+                        ones = 0;
+                    }
+                }
+                int stufflen = j;
+
+                // Step 3: Framing
+                int framed[max_stuff], k = 0;
+                for(i = 0; i < flaglen; i++) framed[k++] = flag[i];
+                for(i = 0; i < stufflen; i++) framed[k++] = stuff[i];
+                for(i = 0; i < flaglen; i++) framed[k++] = flag[i];
+                int framelen = k;
+
+                print("stuffed:       ", stuff, stufflen);
+                print("framed:        ", framed, framelen);
+
+                // Step 4: Bit Destuffing
+                ones = 0;
+                j = 0;
+                int error_detected = 0;
+                for(i = flaglen; i < framelen - flaglen; i++) {
+                    destuff[j++] = framed[i];
+                    ones = (framed[i] == 1) ? ones + 1 : 0;
+                    if(ones == 5) {
+                        if(framed[i+1] != 0) {
+                            printf("\n[ERROR] Invalid stuffing detected during automatic processing!\n");
+                            error_detected = 1;
+                            break;
+                        }
+                        i++;
+                        ones = 0;
+                    }
+                }
+
+                if (error_detected) break; // Return to menu loop instead of killing program
+
+                int destufflen = j;
+                print("destuffed:     ", destuff, destufflen);
+
+                // Step 5: Binary Back to String
+                int out_idx = 0;
+                for(i = 0; i < destufflen; i += 8) {
+                    unsigned char ch = 0;
+                    for(b = 0; b < 8; b++) {
+                        ch = (ch << 1) | destuff[i+b];
+                    }
+                    output_str[out_idx++] = ch;
+                }
+                output_str[out_idx] = '\0';
+                printf("output string: %s\n", output_str);
+                break;
+            }
+
+            case 2: {
+                char binary_str[max_stuff];
+                int input_framed[max_stuff];
+
+                printf("\n--- Case 2: Manual Binary Input Mode ---\n");
+                printf("Enter raw binary stream to destuff): ");
+                fgets(binary_str, sizeof(binary_str), stdin);
+                binary_str[strcspn(binary_str, "\n")] = '\0';
+
+                int input_len = strlen(binary_str);
+                int valid_input = 1;
+                for(i = 0; i < input_len; i++) {
+                    if(binary_str[i] == '1') input_framed[i] = 1;
+                    else if(binary_str[i] == '0') input_framed[i] = 0;
+                    else {
+                        printf("Error: Input must only contain 0s and 1s.\n");
+                        valid_input = 0;
+                        break;
+                    }
+                }
+
+                if (!valid_input) break;
+
+                printf("\nProcessing your binary stream...\n");
+                print("Input stream:  ", input_framed, input_len);
+
+                ones = 0;
+                j = 0;
+                int discard_frame = 0;
+
+                for(i = 0; i < input_len; i++) {
+                    destuff[j++] = input_framed[i];
+                    ones = (input_framed[i] == 1) ? ones + 1 : 0;
+
+                    if(ones == 5) {
+                        if(i + 1 >= input_len) {
+                            printf("\n[DISCARDED] Frame error: Stream ended abruptly right after 5 consecutive 1s.\n");
+                            printf("Description: HDLC protocol requires a trailing bit (either a stuffed 0 or a flag sequence) after five 1s. None was found.\n");
+                            discard_frame = 1;
+                            break;
+                        }
+
+                        if(input_framed[i+1] != 0) {
+                            printf("\n[DISCARDED] Error: Invalid stuffing pattern detected!\n");
+                            printf("Description:\n");
+                            printf(" -> Found 5 consecutive '1' bits ending at index %d.\n", i);
+                            printf(" -> According to bit-stuffing rules, the next bit (index %d) MUST be a stuffed '0'.\n", i + 1);
+                            printf(" -> Instead, found a '%d' bit.\n", input_framed[i+1]);
+                            printf(" ->DISCARDED\n");
+                            discard_frame = 1;
+                            break;
+                        }
+
+                        i++;
+                        ones = 0;
+                    }
+                }
+
+                if (discard_frame) break; // Return back to menu loop gracefully
+
+                int destufflen = j;
+                print("destuffed:     ", destuff, destufflen);
+                break;
+            }
+
+            default:
+                printf("Invalid selection. Please choose option 1, 2, or 3.\n");
+                break;
+        }
+    }
+
+    return 0;
+}
