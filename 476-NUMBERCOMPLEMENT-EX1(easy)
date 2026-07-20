@@ -1,0 +1,29 @@
+int findComplement(int num) {
+
+    if (num == 0){
+        return 1;
+    }
+
+    int copy = num;
+    int decimalNum = 0;
+    long base = 1; 
+
+
+    while (copy >= 1) {
+        int rem = copy % 2;
+        
+        if (rem == 0) {
+            rem = 1;
+        } else {
+            rem = 0;
+        }
+        
+      
+        decimalNum = decimalNum + (rem * base);
+        
+        base = base * 2; 
+        copy = copy / 2; 
+    }
+
+    return decimalNum;
+}
