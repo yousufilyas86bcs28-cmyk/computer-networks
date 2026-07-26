@@ -1,0 +1,237 @@
+[24bcs051@mepcolinux ex1]$cat newbit1.c
+#include <stdio.h>
+#include <string.h>
+
+#define MAX_CHARS 100
+#define MAX_BITS (MAX_CHARS * 8)
+#define MAX_STUFFED_BITS (MAX_BITS * 2)
+
+int originalBits[MAX_BITS], stuffedBits[MAX_STUFFED_BITS], destuffedBits[MAX_BITS];
+char inputStr[MAX_CHARS];
+char outputStr[MAX_CHARS];
+int flagSeq[] = {0, 1, 1, 1, 1, 1, 1, 0};
+int flagLen = 8;
+
+void displayBits(const char *label, int bits[], int length) {
+    printf("%s ", label);
+    int idx;
+    for (idx = 0; idx < length; idx++) {
+        printf("%d", bits[idx]);
+    }
+    printf("\n");
+}
+
+int main() {
+    int userChoice;
+
+    while (1) {
+        printf("=== Menu ===\n");
+        printf("1. Transmit String with Bit Stuffing\n");
+        printf("2. Enter Binary Stream Manually (Check for Stuffing Errors)\n");
+        printf("3. Quit\n");
+        printf("Enter choice: ");
+
+        if (scanf("%d", &userChoice) != 1) {
+            printf("Invalid input. Exiting.\n");
+            break;
+        }
+        getchar(); // Remove trailing newline
+
+        if (userChoice == 3) {
+            printf("Program terminated.\n");
+            break;
+        }
+
+        int consecutiveOnes = 0, outIndex = 0, bitIndex = 0;
+
+        switch (userChoice) {
+            case 1: {
+                printf("Input a string: ");
+                fgets(inputStr, sizeof(inputStr), stdin);
+                inputStr[strcspn(inputStr, "\n")] = '\0';
+
+                int strLength = strlen(inputStr);
+
+                // Convert string characters to bits
+                bitIndex = 0;
+                int i, b;
+                for (i = 0; i < strLength; i++) {
+                    unsigned char ch = (unsigned char)inputStr[i];
+                    for (b = 7; b >= 0; b--) {
+                        originalBits[bitIndex++] = (ch >> b) & 1;
+                    }
+                }
+                displayBits("Original bits:", originalBits, bitIndex);
+
+                // Perform bit stuffing
+                outIndex = 0;
+                consecutiveOnes = 0;
+                for (i = 0; i < bitIndex; i++) {
+                    stuffedBits[outIndex++] = originalBits[i];
+                    if (originalBits[i] == 1) {
+                        consecutiveOnes++;
+                    } else {
+                        consecutiveOnes = 0;
+                    }
+                    if (consecutiveOnes == 5) {
+                        stuffedBits[outIndex++] = 0; // insert stuffed 0
+                        consecutiveOnes = 0;
+                    }
+                }
+                int stuffedLength = outIndex;
+
+                // Add flag sequences at start and end (framing)
+                int framedBits[MAX_STUFFED_BITS + 16];
+                int frameIndex = 0;
+                for (i = 0; i < flagLen; i++) framedBits[frameIndex++] = flagSeq[i];
+                for (i = 0; i < stuffedLength; i++) framedBits[frameIndex++] = stuffedBits[i];
+                for (i = 0; i < flagLen; i++) framedBits[frameIndex++] = flagSeq[i];
+
+                displayBits("Stuffed bits: ", stuffedBits, stuffedLength);
+                displayBits("Framed bits:  ", framedBits, frameIndex);
+
+                // Bit destuffing
+                consecutiveOnes = 0;
+                outIndex = 0;
+                int errorFound = 0;
+                // Remove flags first and last 8 bits
+                for (i = flagLen; i < frameIndex - flagLen; i++) {
+                    destuffedBits[outIndex++] = framedBits[i];
+                    if (framedBits[i] == 1) {
+                        consecutiveOnes++;
+                    } else {
+                        consecutiveOnes = 0;
+                    }
+                    if (consecutiveOnes == 5) {
+                        if (framedBits[i + 1] != 0) {
+                            printf("\n[ERROR] Invalid bit stuffing detected!\n");
+                            errorFound = 1;
+                            break;
+                        }
+                        i++; // skip stuffed zero
+                        consecutiveOnes = 0;
+                    }
+                }
+                if (errorFound) break;
+
+                int destuffedLength = outIndex;
+                displayBits("Destuffed bits:", destuffedBits, destuffedLength);
+
+                // Convert bits back to string
+                int outCharIndex = 0;
+                for (i = 0; i < destuffedLength; i += 8) {
+                    unsigned char ch = 0;
+                    for (b = 0; b < 8; b++) {
+                        ch = (ch << 1) | destuffedBits[i + b];
+                    }
+                    outputStr[outCharIndex++] = ch;
+                }
+                outputStr[outCharIndex] = '\0';
+                printf("Output string: %s\n", outputStr);
+                break;
+            }
+
+            case 2: {
+                char manualInput[MAX_STUFFED_BITS];
+                int manualBits[MAX_STUFFED_BITS];
+                printf("Input raw binary stream: ");
+                fgets(manualInput, sizeof(manualInput), stdin);
+                manualInput[strcspn(manualInput, "\n")] = '\0';
+                int i;
+                int len = strlen(manualInput);
+                int valid = 1;
+                for (i = 0; i < len; i++) {
+                    if (manualInput[i] == '1') manualBits[i] = 1;
+                    else if (manualInput[i] == '0') manualBits[i] = 0;
+                    else {
+                        printf("Input must only contain 0 or 1.\n");
+                        valid = 0;
+                        break;
+                    }
+                }
+                if (!valid) break;
+
+                printf("Processing your input stream...\n");
+                displayBits("Input bits:    ", manualBits, len);
+
+                consecutiveOnes = 0;
+                outIndex = 0;
+                int discard = 0;
+
+                for (i = 0; i < len; i++) {
+                    destuffedBits[outIndex++] = manualBits[i];
+                    if (manualBits[i] == 1) {
+                        consecutiveOnes++;
+                    } else {
+                        consecutiveOnes = 0;
+                    }
+                    if (consecutiveOnes == 5) {
+                        if (i + 1 >= len) {
+                            printf("\n[DISCARDED] Frame error: stream ended unexpectedly after 5 consecutive 1s.\n");
+                            discard = 1;
+                            break;
+                        }
+                        if (manualBits[i + 1] != 0) {
+                            printf("\n[DISCARDED] Error: Invalid stuffed bit pattern detected!\n");
+                            printf("Expected a stuffed '0' bit after 5 ones, but found a '%d'.\n", manualBits[i + 1]);
+                            discard = 1;
+                            break;
+                        }
+                        i++; // skip stuffed zero bit
+                        consecutiveOnes = 0;
+                    }
+                }
+                if (discard) break;
+
+                int destuffLen = outIndex;
+                displayBits("Destuffed bits:", destuffedBits, destuffLen);
+                break;
+            }
+
+            default:
+                printf("Please enter a valid option: 1, 2, or 3.\n");
+                break;
+        }
+    }
+
+    return 0;
+}
+[24bcs051@mepcolinux ex1]$cc newbit1.c
+[24bcs051@mepcolinux ex1]$./a.out
+=== Menu ===
+1. Transmit String with Bit Stuffing
+2. Enter Binary Stream Manually (Check for Stuffing Errors)
+3. Quit
+Enter choice: 1
+Input a string: hello
+Original bits: 0110100001100101011011000110110001101111
+Stuffed bits:  0110100001100101011011000110110001101111
+Framed bits:   01111110011010000110010101101100011011000110111101111110
+Destuffed bits: 0110100001100101011011000110110001101111
+Output string: hello
+=== Menu ===
+1. Transmit String with Bit Stuffing
+2. Enter Binary Stream Manually (Check for Stuffing Errors)
+3. Quit
+Enter choice: 2
+Input raw binary stream: 01111110
+Processing your input stream...
+Input bits:     01111110
+
+[DISCARDED] Error: Invalid stuffed bit pattern detected!
+Expected a stuffed '0' bit after 5 ones, but found a '1'.
+=== Menu ===
+1. Transmit String with Bit Stuffing
+2. Enter Binary Stream Manually (Check for Stuffing Errors)
+3. Quit
+Enter choice: 2
+Input raw binary stream: 01111101
+Processing your input stream...
+Input bits:     01111101
+Destuffed bits: 0111111
+=== Menu ===
+1. Transmit String with Bit Stuffing
+2. Enter Binary Stream Manually (Check for Stuffing Errors)
+3. Quit
+Enter choice: 3
+Program terminated.
