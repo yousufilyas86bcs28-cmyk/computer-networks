@@ -1,0 +1,321 @@
+[24bcs051@mepcolinux ex1]$cat newbyte1.c
+#include <stdio.h>
+#include <string.h>
+
+#define MAX_LEN 100
+
+int inputBytes[MAX_LEN];
+int bitsArr[MAX_LEN * 8];
+int stuffedBuffer[MAX_LEN * 2];
+int framedBuffer[MAX_LEN * 2];
+int destuffedBuffer[MAX_LEN];
+int flagVal, escapeVal;
+
+int convertBitsToByte(int bits[]) {
+    int value = 0;
+    for (int i = 0; i < 8; i++) {
+        value = (value << 1) | bits[i];
+    }
+    return value;
+}
+
+void printByteAsBits(int byte) {
+    for (int i = 7; i >= 0; i--) {
+        printf("%d", (byte >> i) & 1);
+    }
+}
+
+void printByteArrayBits(const char* label, int array[], int length) {
+    printf("%s: ", label);
+    for (int i = 0; i < length; i++) {
+        printByteAsBits(array[i]);
+        printf(" ");
+    }
+    printf("\n");
+}
+
+int main() {
+    int flagBits[8], escBits[8];
+    char message[MAX_LEN];
+    int option;
+
+    printf("Enter 8 bits for the Flag byte: ");
+    for (int i = 0; i < 8; i++) {
+        scanf("%d", &flagBits[i]);
+    }
+    flagVal = convertBitsToByte(flagBits);
+
+    printf("Enter 8 bits for the Escape byte: ");
+    for (int i = 0; i < 8; i++) {
+        scanf("%d", &escBits[i]);
+    }
+    escapeVal = convertBitsToByte(escBits);
+    getchar();
+
+    while (1) {
+        printf("\n--- Menu ---\n");
+        printf("1. Transmit String with Byte Stuffing\n");
+        printf("2. Enter Raw Byte Stream (Check for Frame Errors)\n");
+        printf("3. Exit\n");
+        printf("Select an option: ");
+
+        if (scanf("%d", &option) != 1) {
+            printf("Invalid input detected. Exiting...\n");
+            break;
+        }
+        getchar();
+
+        if (option == 3) {
+            printf("Goodbye!\n");
+            break;
+        }
+
+        switch (option) {
+            case 1: {
+                printf("\n--- String Transmission Mode ---\n");
+                printf("Enter your message: ");
+                fgets(message, sizeof(message), stdin);
+                message[strcspn(message, "\n")] = '\0';
+                int msgLen = strlen(message);
+                int bitIndex = 0;
+                for (int i = 0; i < msgLen; i++) {
+                    int ch = (int)message[i];
+                    for (int b = 7; b >= 0; b--) {
+                        bitsArr[bitIndex++] = (ch >> b) & 1;
+                    }
+                }
+                for (int i = 0; i < msgLen; i++) {
+                    int temp[8];
+                    for (int b = 0; b < 8; b++) {
+                        temp[b] = bitsArr[i * 8 + b];
+                    }
+                    inputBytes[i] = convertBitsToByte(temp);
+                }
+
+                printf("\nFlag byte: "); printByteAsBits(flagVal); printf("\n");
+                printf("Escape byte: "); printByteAsBits(escapeVal); printf("\n\n");
+
+                printByteArrayBits("Original Bytes", inputBytes, msgLen);
+                int idx = 0;
+                for (int i = 0; i < msgLen; i++) {
+                    if (inputBytes[i] == flagVal || inputBytes[i] == escapeVal) {
+                        stuffedBuffer[idx++] = escapeVal;
+                        stuffedBuffer[idx++] = inputBytes[i];
+                    } else {
+                        stuffedBuffer[idx++] = inputBytes[i];
+                    }
+                }
+                int stuffedLen = idx;
+                printByteArrayBits("Stuffed Bytes ", stuffedBuffer, stuffedLen);
+
+                int frameIdx = 0;
+                framedBuffer[frameIdx++] = flagVal;
+                for (int i = 0; i < stuffedLen; i++) {
+                    framedBuffer[frameIdx++] = stuffedBuffer[i];
+                }
+                framedBuffer[frameIdx++] = flagVal;
+                int framedLen = frameIdx;
+
+                printByteArrayBits("Framed Bytes  ", framedBuffer, framedLen);
+
+                int destuffIdx = 0;
+                int errorFlag = 0;
+
+                if (framedBuffer[0] != flagVal || framedBuffer[framedLen - 1] != flagVal) {
+                    printf("\n[DISCARDED] Error: Frame missing starting or ending Flag byte.\n");
+                    break;
+                }
+
+                for (int i = 1; i < framedLen - 1; i++) {
+                    if (framedBuffer[i] == escapeVal) {
+                        if (i + 1 >= framedLen - 1) {
+                            printf("\n[DISCARDED] Error: Escape byte at end without payload byte.\n");
+                            errorFlag = 1;
+                            break;
+                        }
+                        i++;
+                        destuffedBuffer[destuffIdx++] = framedBuffer[i];
+                    } else if (framedBuffer[i] == flagVal) {
+                        printf("\n[DISCARDED] Error: Unescaped Flag byte found inside the frame payload.\n");
+                        errorFlag = 1;
+                        break;
+                    } else {
+                        destuffedBuffer[destuffIdx++] = framedBuffer[i];
+                    }
+                }
+
+                if (!errorFlag) {
+                    printByteArrayBits("Destuffed Bytes", destuffedBuffer, destuffIdx);
+
+                    if (destuffIdx == msgLen) {
+                        int match = 1;
+                        char outStr[MAX_LEN];
+                        for (int i = 0; i < msgLen; i++) {
+                            if (destuffedBuffer[i] != inputBytes[i]) {
+                                match = 0;
+                                break;
+                            }
+                            outStr[i] = (char)destuffedBuffer[i];
+                        }
+                        outStr[msgLen] = '\0';
+
+                        if (match) {
+                            printf("\nDestuffing successful!\n");
+                            printf("Received message: %s\n", outStr);
+                        } else {
+                            printf("\nDestuffed data mismatch with original.\n");
+                        }
+                    } else {
+                        printf("\nDestuffed byte length differs from original.\n");
+                    }
+                }
+                break;
+            }
+
+            case 2: {
+                int bytesCount;
+                int manualStream[MAX_LEN * 2];
+
+                printf("\n--- Manual Byte Stream Input ---\n");
+                printf("Enter number of bytes in stream: ");
+                if (scanf("%d", &bytesCount) != 1 || bytesCount <= 0 || bytesCount > MAX_LEN * 2) {
+                    printf("Invalid length entered.\n");
+                    getchar();
+                    break;
+                }
+
+                printf("Enter %d byte values:\n", bytesCount);
+                for (int i = 0; i < bytesCount; i++) {
+                    scanf("%d", &manualStream[i]);
+                }
+                getchar();
+                printf("\nAnalyzing input stream...\n");
+                printByteArrayBits("Input Stream", manualStream, bytesCount);
+
+                int destuffIdx = 0;
+                int errorFlag = 0;
+
+                if (manualStream[0] != flagVal || manualStream[bytesCount - 1] != flagVal) {
+                    printf("\n[DISCARDED] Framing error: Missing correct start/end Flag bytes.\n");
+                    printf("Expected Flag byte value: %d\n", flagVal);
+                    printf("Found start: %d, end: %d\n", manualStream[0], manualStream[bytesCount - 1]);
+                    errorFlag = 1;
+                    break;
+                }
+
+                for (int i = 1; i < bytesCount - 1; i++) {
+                    if (manualStream[i] == escapeVal) {
+                        if (i + 1 >= bytesCount - 1) {
+                            printf("\n[DISCARDED] Protocol error: Escape byte at end with no following byte.\n");
+                            errorFlag = 1;
+                            break;
+                        }
+                        i++;
+                        destuffedBuffer[destuffIdx++] = manualStream[i];
+                    } else if (manualStream[i] == flagVal) {
+                        printf("\n[DISCARDED] Protocol error: Unescaped Flag byte inside frame at index %d.\n", i);
+                        errorFlag = 1;
+                        break;
+                    } else {
+                        destuffedBuffer[destuffIdx++] = manualStream[i];
+                    }
+                }
+
+                if (!errorFlag) {
+                    printByteArrayBits("Destuffed Bytes", destuffedBuffer, destuffIdx);
+
+                    char outputStr[MAX_LEN] = {0};
+                    int printable = 1;
+                    for (int i = 0; i < destuffIdx && i < MAX_LEN - 1; i++) {
+                        if (destuffedBuffer[i] >= 32 && destuffedBuffer[i] <= 126) {
+                            outputStr[i] = (char)destuffedBuffer[i];
+                        } else {
+                            printable = 0;
+                        }
+                    }
+
+                    if (printable && destuffIdx > 0) {
+                        printf("Decoded message: %s\n", outputStr);
+                    } else {
+                        printf("Decoded data includes non-printable characters.\n");
+                    }
+                }
+                break;
+            }
+
+            default:
+                printf("Invalid option. Please select 1, 2, or 3.\n");
+                break;
+        }
+    }
+    return 0;
+}
+                     ^
+[24bcs051@mepcolinux ex1]$g++ newbyte1.c
+[24bcs051@mepcolinux ex1]$./a.out
+Enter 8 bits for the Flag byte: 0 1 0 0 0 0 0 1
+Enter 8 bits for the Escape byte: 0 1 0 0 0 0 1 0
+
+--- Menu ---
+1. Transmit String with Byte Stuffing
+2. Enter Raw Byte Stream (Check for Frame Errors)
+3. Exit
+Select an option: 1
+
+--- String Transmission Mode ---
+Enter your message: ABC
+
+Flag byte: 01000001
+Escape byte: 01000010
+
+Original Bytes: 01000001 01000010 01000011
+Stuffed Bytes : 01000010 01000001 01000010 01000010 01000011
+Framed Bytes  : 01000001 01000010 01000001 01000010 01000010 01000011 01000001
+Destuffed Bytes: 01000001 01000010 01000011
+
+Destuffing successful!
+Received message: ABC
+
+--- Menu ---
+1. Transmit String with Byte Stuffing
+2. Enter Raw Byte Stream (Check for Frame Errors)
+3. Exit
+Select an option: 2
+
+--- Manual Byte Stream Input ---
+Enter number of bytes in stream: 2
+Enter 2 byte values:
+5
+7
+
+Analyzing input stream...
+Input Stream: 00000101 00000111
+
+[DISCARDED] Framing error: Missing correct start/end Flag bytes.
+Expected Flag byte value: 65
+Found start: 5, end: 7
+
+--- Menu ---
+1. Transmit String with Byte Stuffing
+2. Enter Raw Byte Stream (Check for Frame Errors)
+3. Exit
+Select an option: 2
+
+--- Manual Byte Stream Input ---
+Enter number of bytes in stream: 3
+Enter 3 byte values:
+65
+5
+65
+
+Analyzing input stream...
+Input Stream: 01000001 00000101 01000001
+Destuffed Bytes: 00000101
+Decoded data includes non-printable characters.
+
+--- Menu ---
+1. Transmit String with Byte Stuffing
+2. Enter Raw Byte Stream (Check for Frame Errors)
+3. Exit
+Select an option: 3
+Goodbye!
