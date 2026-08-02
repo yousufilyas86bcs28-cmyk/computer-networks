@@ -1,0 +1,35 @@
+char* addBinary(char* a, char* b) {
+    int n = strlen(a);
+    int m = strlen(b);
+
+    int i = n - 1;
+    int j = m - 1;
+    int carry = 0;
+
+    char *ans = (char *)malloc(n + m + 2);
+    int k = 0;
+
+    while (i >= 0 || j >= 0 || carry) {
+        int sum = carry;
+
+        if (i >= 0)
+            sum += a[i--] - '0';
+
+        if (j >= 0)
+            sum += b[j--] - '0';
+
+        ans[k++] = (sum % 2) + '0';
+        carry = sum / 2;
+    }
+
+    ans[k] = '\0';
+
+    // Reverse the answer
+    for (int l = 0, r = k - 1; l < r; l++, r--) {
+        char temp = ans[l];
+        ans[l] = ans[r];
+        ans[r] = temp;
+    }
+
+    return ans;
+}
